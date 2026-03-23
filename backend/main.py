@@ -113,13 +113,15 @@ async def websocket_endpoint(ws: WebSocket):
                     elif msg.get("type") == "start_generation":
                         # Sent by frontend after the listen phase — starts the scheduler
                         genre = msg.get("genre", genre)
+                        # Run full-buffer analysis now that we have 4s of audio
+                        final = analyzer.finalize_analysis()
                         conductor.update(
-                            key=conductor.key,
-                            bpm=conductor.bpm,
+                            key=final['key'],
+                            bpm=final['bpm'],
                             genre=genre,
                             energy=conductor.energy
                         )
-                        print(f"[WS] Start generation requested (genre={genre})")
+                        print(f"[WS] Start generation: key={final['key']}, bpm={final['bpm']:.1f}, genre={genre}")
                         if not generation_started:
                             generation_started = True
                             scheduler.start()

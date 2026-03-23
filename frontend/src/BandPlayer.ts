@@ -1,41 +1,72 @@
 import * as Tone from 'tone';
 import type { NoteEvent } from './WebSocketClient';
 
-// Instrument note mappings for sampler
-// In a real build, these point to actual WAV files in /public/samples/
-// For the POC we use Tone.js synths as fallbacks
-
 export class BandPlayer {
-  private drumSynth: Tone.MembraneSynth;
+  private kickSynth: Tone.MembraneSynth;
+  private snareSynth: Tone.NoiseSynth;
+  private hatSynth: Tone.MetalSynth;
   private bassSynth: Tone.MonoSynth;
   private keysSynth: Tone.PolySynth;
+  private reverb: Tone.Reverb;
   private isReady = false;
 
   constructor() {
-    this.drumSynth = new Tone.MembraneSynth({
-      pitchDecay: 0.05,
-      octaves: 6,
-      envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
-    }).toDestination();
+    // Kick: pitched membrane decay
+    this.kickSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.08,
+      octaves: 8,
+      envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.1 },
+    });
+    this.kickSynth.volume.value = -2;
 
+    // Snare: noise burst with tight envelope
+    this.snareSynth = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
+    });
+    this.snareSynth.volume.value = -8;
+
+    // Hi-hat: metallic short burst
+    this.hatSynth = new Tone.MetalSynth({
+      frequency: 400,
+      envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+      harmonicity: 5.1,
+      modulationIndex: 32,
+      resonance: 4000,
+      octaves: 1.5,
+    });
+    this.hatSynth.volume.value = -14;
+
+    // Bass: warm sine-triangle with filter
     this.bassSynth = new Tone.MonoSynth({
-      oscillator: { type: 'triangle' },
-      envelope: { attack: 0.02, decay: 0.1, sustain: 0.8, release: 0.5 },
-      filterEnvelope: { attack: 0.02, decay: 0.2, sustain: 0.5, release: 0.5, baseFrequency: 300, octaves: 2 },
-    }).toDestination();
+      oscillator: { type: 'fatsawtooth', count: 2, spread: 20 },
+      envelope: { attack: 0.02, decay: 0.15, sustain: 0.7, release: 0.4 },
+      filterEnvelope: {
+        attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.4,
+        baseFrequency: 200, octaves: 2.5,
+      },
+    });
+    this.bassSynth.volume.value = -4;
 
+    // Keys: warm pad with reverb
+    this.reverb = new Tone.Reverb({ decay: 1.5, wet: 0.3 }).toDestination();
     this.keysSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'sawtooth' },
-      envelope: { attack: 0.05, decay: 0.2, sustain: 0.6, release: 1 },
-    }).toDestination();
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.08, decay: 0.3, sustain: 0.5, release: 1.2 },
+    });
+    this.keysSynth.volume.value = -10;
 
-    this.keysSynth.set({ volume: -8 });
-    this.bassSynth.set({ volume: -6 });
-    this.drumSynth.set({ volume: -4 });
+    // Routing
+    this.kickSynth.toDestination();
+    this.snareSynth.toDestination();
+    this.hatSynth.toDestination();
+    this.bassSynth.toDestination();
+    this.keysSynth.connect(this.reverb);
   }
 
   async init(): Promise<void> {
     await Tone.start();
+    await this.reverb.ready;
     this.isReady = true;
   }
 
@@ -46,12 +77,14 @@ export class BandPlayer {
 
     switch (event.instrument) {
       case 'drums':
-        this.drumSynth.triggerAttackRelease(
-          event.note === 'kick' ? 'C1' : event.note === 'snare' ? 'E1' : 'A2',
-          event.duration,
-          toneTime,
-          event.velocity
-        );
+        if (event.note === 'kick') {
+          this.kickSynth.triggerAttackRelease('C1', event.duration, toneTime, event.velocity);
+        } else if (event.note === 'snare') {
+          this.snareSynth.triggerAttackRelease(event.duration, toneTime, event.velocity);
+        } else {
+          // hat
+          this.hatSynth.triggerAttackRelease(event.duration, toneTime, event.velocity);
+        }
         break;
       case 'bass':
         this.bassSynth.triggerAttackRelease(event.note, event.duration, toneTime, event.velocity);
@@ -63,9 +96,12 @@ export class BandPlayer {
   }
 
   dispose(): void {
-    this.drumSynth.dispose();
+    this.kickSynth.dispose();
+    this.snareSynth.dispose();
+    this.hatSynth.dispose();
     this.bassSynth.dispose();
     this.keysSynth.dispose();
+    this.reverb.dispose();
     this.isReady = false;
   }
 }

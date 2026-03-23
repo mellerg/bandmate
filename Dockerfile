@@ -11,24 +11,10 @@ RUN npm run build
 # ── Stage 2: Python runtime + built frontend ──────────────────────────────────
 FROM python:3.11-slim
 
-# aubio needs gcc + headers to compile from source
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-        build-essential \
-        python3-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Install Python dependencies
-# CFLAGS workaround: aubio 0.4.9 has a function-pointer type mismatch
-# against newer numpy that clang/gcc flag as an error on stricter builds.
+# Install Python dependencies (librosa ships pre-built wheels — no compiler needed)
 COPY backend/requirements.txt ./backend/
-# numpy must be installed first — aubio's C extension includes numpy/arrayobject.h at compile time
-RUN pip install --no-cache-dir numpy==1.26.3
-# -w silences compiler warnings (aubio 0.4.9 has type mismatches against newer numpy)
-RUN CFLAGS="-w" pip install --no-cache-dir aubio==0.4.9
-# Install remaining dependencies (numpy + aubio already present, skipped)
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend source

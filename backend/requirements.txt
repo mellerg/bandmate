@@ -1,8 +1,5 @@
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 websockets==12.0
-# aubio requires a compiler flag on Python 3.12+ due to npy_intp type changes.
-# Install with: CFLAGS="-Wno-incompatible-function-pointer-types" pip install aubio==0.4.9
-aubio==0.4.9
-numpy==1.26.3
+librosa==0.11.0
 python-multipart==0.0.6

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bandmate</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="header">
+        <h1>🎸 Bandmate</h1>
+        <p class="subtitle">Play. We'll join in.</p>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn" class="btn-primary">Start Jamming</button>
+        <button id="stopBtn" class="btn-secondary" disabled>Stop</button>
+      </div>
+
+      <div class="status-panel">
+        <div id="phaseIndicator" class="phase-indicator">Ready</div>
+        <div class="meters">
+          <div class="meter-group">
+            <label>Detected Key</label>
+            <div id="keyDisplay" class="meter-value">—</div>
+          </div>
+          <div class="meter-group">
+            <label>BPM</label>
+            <div id="bpmDisplay" class="meter-value">—</div>
+          </div>
+          <div class="meter-group">
+            <label>Genre</label>
+            <div id="genreDisplay" class="meter-value">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-panel">
+        <div class="kpi-header">
+          <span class="kpi-title">POC Success Metrics</span>
+          <span class="kpi-subtitle">Live — updates each buffer cycle</span>
+        </div>
+        <div class="kpi-grid">
+
+          <div class="kpi-card" id="kpi-bufJoin">
+            <div class="kpi-card-label">Buffer Join Time</div>
+            <div class="kpi-card-value" id="kpiBufJoin">—</div>
+            <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpiBufJoinBar"></div></div>
+            <div class="kpi-card-target">Pass: feels instant</div>
+          </div>
+
+          <div class="kpi-card" id="kpi-dynResp">
+            <div class="kpi-card-label">Dynamic Response</div>
+            <div class="kpi-card-value" id="kpiDynResp">—</div>
+            <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpiDynRespBar"></div></div>
+            <div class="kpi-card-target">Pass: &lt; 6s</div>
+          </div>
+
+          <div class="kpi-card" id="kpi-pitchConf">
+            <div class="kpi-card-label">Pitch Confidence</div>
+            <div class="kpi-card-value" id="kpiPitchConf">—</div>
+            <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpiPitchConfBar"></div></div>
+            <div class="kpi-card-target">Pass: &gt; 85%</div>
+          </div>
+
+          <div class="kpi-card" id="kpi-bpmStab">
+            <div class="kpi-card-label">BPM Stability</div>
+            <div class="kpi-card-value" id="kpiBpmStab">—</div>
+            <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpiBpmStabBar"></div></div>
+            <div class="kpi-card-target">Pass: ± 5 BPM</div>
+          </div>
+
+          <div class="kpi-card" id="kpi-music">
+            <div class="kpi-card-label">Musicality</div>
+            <div class="kpi-card-value" id="kpiMusic">—</div>
+            <div class="kpi-bar-track"><div class="kpi-bar-fill" id="kpiMusicBar"></div></div>
+            <div class="kpi-card-target">Pass: &gt; 80%</div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="visualizer-container">
+        <canvas id="waveform" width="600" height="100"></canvas>
+      </div>
+
+      <div class="genre-selector">
+        <label>Genre:</label>
+        <button class="genre-btn active" data-genre="blues">Blues</button>
+        <button class="genre-btn" data-genre="rock">Rock</button>
+      </div>
+
+      <div id="log" class="log"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: bandmate-poc
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    # Render injects PORT automatically — no need to set it here.
+    # Auto-deploy on every push to the main branch.
+    branch: main

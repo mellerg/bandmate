@@ -91,6 +91,9 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive()
 
+            if data.get("type") == "websocket.disconnect":
+                break
+
             # Text messages: JSON control commands
             if "text" in data:
                 try:

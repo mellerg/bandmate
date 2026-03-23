@@ -24,8 +24,8 @@ WORKDIR /app
 # CFLAGS workaround: aubio 0.4.9 has a function-pointer type mismatch
 # against newer numpy that clang/gcc flag as an error on stricter builds.
 COPY backend/requirements.txt ./backend/
-RUN CFLAGS="-Wno-error=incompatible-function-pointer-types" \
-    pip install --no-cache-dir -r backend/requirements.txt
+# -w silences all compiler warnings — works on both GCC (Linux) and clang (macOS)
+RUN CFLAGS="-w" pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend source
 COPY backend/ ./backend/

@@ -1,47 +1,84 @@
+import time
 import numpy as np
 import librosa
+from music_theory import detect_chord, infer_key_from_chord_sequence
 
 SAMPLE_RATE = 22050
 HOP_SIZE = 512
 WIN_SIZE = 2048
-
-PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
-
-# Minimum samples needed for reliable BPM detection (~3 seconds)
-MIN_BPM_SAMPLES = SAMPLE_RATE * 3
+MIN_BPM_SAMPLES = SAMPLE_RATE * 3   # need ≥3 s for reliable beat tracking
 
 
-def hz_to_note(hz: float) -> tuple[str, int]:
-    if hz <= 0:
-        return ('', 0)
-    midi = 69 + 12 * np.log2(hz / 440.0)
-    note_idx = int(round(midi)) % 12
-    octave = int(round(midi)) // 12 - 1
-    return (PITCH_CLASSES[note_idx], octave)
+class _BpmStabilizer:
+    """
+    Holds a 'stable BPM' that only re-syncs when a change > THRESHOLD BPM
+    is sustained for > SUSTAIN_SECS seconds.
+
+    Rule (per user spec):
+      • Small fluctuations (e.g. 100–110 BPM) → locked at the initial average
+      • A deliberate tempo shift (>10 BPM) held for >5 s → band re-syncs
+    """
+    THRESHOLD = 10.0
+    SUSTAIN_SECS = 5.0
+
+    def __init__(self) -> None:
+        self.stable_bpm: float = 100.0
+        self._candidate: float | None = None
+        self._candidate_since: float | None = None
+
+    def set_initial(self, bpm: float) -> None:
+        self.stable_bpm = round(bpm, 1)
+        self._candidate = None
+        self._candidate_since = None
+
+    def observe(self, new_bpm: float) -> float:
+        """Feed a new BPM reading. Returns the current stable (locked) BPM."""
+        now = time.monotonic()
+        if abs(new_bpm - self.stable_bpm) <= self.THRESHOLD:
+            # Within acceptable variance — reset any pending candidate
+            self._candidate = None
+            self._candidate_since = None
+            return self.stable_bpm
+
+        # Outside threshold: start or continue tracking a candidate
+        if self._candidate is None or abs(new_bpm - self._candidate) > self.THRESHOLD:
+            self._candidate = new_bpm
+            self._candidate_since = now
+        elif now - self._candidate_since >= self.SUSTAIN_SECS:
+            # Candidate persisted long enough → lock it in
+            self.stable_bpm = round(self._candidate, 1)
+            self._candidate = None
+            self._candidate_since = None
+
+        return self.stable_bpm
 
 
 class AudioAnalyzer:
-    def __init__(self):
-        self.pitch_history: list[float] = []
-        self.bpm_history: list[float] = []
+    def __init__(self) -> None:
+        self.bpm_stabilizer = _BpmStabilizer()
         self.confidence_history: list[float] = []
-        self.chroma_accum = np.zeros(12)
-        self.frame_count = 0
-        # Raw audio accumulation for full-buffer BPM/key analysis
+        self.chord_roots: list[str] = []       # chord sequence from listen phase
+        self._current_chord_root: str = 'C'
+        self._current_key: str = 'C'
+        self._bpm_stability: float = 0.0      # set after finalize_analysis()
+        self.frame_count: int = 0
         self._raw_chunks: list[np.ndarray] = []
 
-    def process_chunk(self, pcm_bytes: bytes) -> dict:
-        """Process a raw Float32 PCM chunk. BPM is deferred to finalize_analysis()."""
-        samples = np.frombuffer(pcm_bytes, dtype=np.float32)
+    # ── Per-chunk streaming analysis ──────────────────────────────────────────
 
+    def process_chunk(self, pcm_bytes: bytes) -> dict:
+        """
+        Called for every incoming PCM chunk during the listen phase.
+        Updates chord detection and pitch confidence in real time.
+        BPM detection is deferred to finalize_analysis().
+        """
+        samples = np.frombuffer(pcm_bytes, dtype=np.float32)
         if len(samples) < HOP_SIZE:
             return self._current_result()
 
-        # Accumulate raw audio for final BPM/key detection
         self._raw_chunks.append(samples.copy())
 
-        # ── Pitch detection via librosa YIN ───────────────────────────────────
+        # Pitch confidence via YIN (fraction of voiced frames)
         f0 = librosa.yin(
             samples,
             fmin=librosa.note_to_hz('C2'),
@@ -50,104 +87,101 @@ class AudioAnalyzer:
             hop_length=HOP_SIZE,
             frame_length=WIN_SIZE,
         )
-
-        pitches = []
-        confidences = []
-        for hz in f0:
-            if 80 < hz < 2000:
-                pitches.append(float(hz))
-                confidences.append(1.0)
-                note, _ = hz_to_note(float(hz))
-                chroma_idx = PITCH_CLASSES.index(note)
-                self.chroma_accum[chroma_idx] += 1
-            else:
-                confidences.append(0.0)
-
-        self.confidence_history.extend(confidences)
+        voiced = sum(1 for hz in f0 if 80 < hz < 2000)
+        self.confidence_history.append(voiced / max(len(f0), 1))
         self.confidence_history = self.confidence_history[-40:]
 
-        if pitches:
-            self.pitch_history.extend(pitches)
-        self.pitch_history = self.pitch_history[-20:]
+        # Chord detection from chroma
+        chroma = librosa.feature.chroma_stft(
+            y=samples, sr=SAMPLE_RATE, hop_length=HOP_SIZE
+        ).mean(axis=1)
+        root, _ = detect_chord(chroma)
+        self._current_chord_root = root
+        self.chord_roots.append(root)
+
+        # Live key estimate from accumulated chord sequence
+        self._current_key = infer_key_from_chord_sequence(self.chord_roots)
 
         self.frame_count += 1
         return self._current_result()
 
+    # ── Full-buffer finalization (called once after listen phase) ─────────────
+
     def finalize_analysis(self) -> dict:
         """
-        Run full-buffer BPM and chroma analysis on all accumulated audio.
-        Call this once after the listen phase ends, before starting generation.
-        Returns {'bpm': float, 'key': str}.
+        Run beat tracking on the full accumulated buffer for accurate BPM.
+        Key is derived from the chord progression collected during listening.
+        Returns {'bpm', 'key', 'chord_root'} to seed the Conductor.
         """
         if not self._raw_chunks:
-            return {'bpm': 100.0, 'key': self._detect_key()}
+            return {
+                'bpm': self.bpm_stabilizer.stable_bpm,
+                'key': self._current_key,
+                'chord_root': self._current_chord_root,
+            }
 
         full_audio = np.concatenate(self._raw_chunks)
+        duration_s = len(full_audio) / SAMPLE_RATE
 
-        # BPM on full buffer (needs ≥3s for reliable results)
+        # ── BPM: full buffer + stability from 3 segments ──────────────────
         if len(full_audio) >= MIN_BPM_SAMPLES:
             tempo, _ = librosa.beat.beat_track(
-                y=full_audio,
-                sr=SAMPLE_RATE,
-                hop_length=HOP_SIZE,
+                y=full_audio, sr=SAMPLE_RATE, hop_length=HOP_SIZE
             )
             bpm = float(np.atleast_1d(tempo)[0])
             if 40 < bpm < 240:
-                self.bpm_history.append(bpm)
+                self.bpm_stabilizer.set_initial(bpm)
 
-        # Chroma on full buffer — more accurate than per-chunk accumulation
-        chroma = librosa.feature.chroma_stft(
-            y=full_audio,
-            sr=SAMPLE_RATE,
-            hop_length=HOP_SIZE,
+            # Stability: std dev across 3 equal segments
+            seg = len(full_audio) // 3
+            bpm_segs: list[float] = []
+            for i in range(3):
+                chunk = full_audio[i * seg:(i + 1) * seg]
+                if len(chunk) >= MIN_BPM_SAMPLES // 2:
+                    t2, _ = librosa.beat.beat_track(
+                        y=chunk, sr=SAMPLE_RATE, hop_length=HOP_SIZE
+                    )
+                    v = float(np.atleast_1d(t2)[0])
+                    if 40 < v < 240:
+                        bpm_segs.append(v)
+            self._bpm_stability = float(np.std(bpm_segs)) if len(bpm_segs) > 1 else 0.0
+
+        # ── Key: chord-progression based ──────────────────────────────────
+        self._current_key = infer_key_from_chord_sequence(self.chord_roots)
+
+        stable_bpm = self.bpm_stabilizer.stable_bpm
+        print(
+            f"[Analyzer] key={self._current_key}, bpm={stable_bpm:.1f}, "
+            f"stability=±{self._bpm_stability:.1f}, "
+            f"buffer={duration_s:.1f}s, chords={self.chord_roots[-6:]}"
         )
-        self.chroma_accum = chroma.mean(axis=1)
-
-        avg_bpm = float(np.median(self.bpm_history)) if self.bpm_history else 100.0
-        key = self._detect_key()
-
-        print(f"[Analyzer] Finalized: key={key}, bpm={avg_bpm:.1f} "
-              f"(buffer={len(full_audio)/SAMPLE_RATE:.1f}s)")
-        return {'bpm': avg_bpm, 'key': key}
-
-    def _current_result(self) -> dict:
-        avg_pitch = float(np.median(self.pitch_history)) if self.pitch_history else 0.0
-        avg_bpm = float(np.median(self.bpm_history)) if self.bpm_history else 100.0
-        bpm_stability = float(np.std(self.bpm_history)) if len(self.bpm_history) > 1 else 0.0
-        avg_confidence = float(np.mean(self.confidence_history)) if self.confidence_history else 0.0
-        samples_so_far = sum(len(c) for c in self._raw_chunks)
-        energy = 0.0
-        if self._raw_chunks:
-            last = self._raw_chunks[-1]
-            energy = float(np.sqrt(np.mean(last ** 2)))
         return {
-            'pitch': round(avg_pitch, 2),
-            'key': self._detect_key(),
-            'bpm': round(avg_bpm, 1),
-            'energy': round(energy, 4),
-            'pitch_confidence': round(avg_confidence, 3),
-            'bpm_stability': round(bpm_stability, 2),
+            'bpm': stable_bpm,
+            'key': self._current_key,
+            'chord_root': self._current_chord_root,
         }
 
-    def _detect_key(self) -> str:
-        if self.chroma_accum.sum() == 0:
-            return 'C'
-        chroma = self.chroma_accum / self.chroma_accum.sum()
-        best_score = -np.inf
-        best_key = 'C'
-        for i, name in enumerate(PITCH_CLASSES):
-            rotated = np.roll(MAJOR_PROFILE, -i)
-            rotated = rotated / rotated.sum()
-            score = float(np.dot(chroma, rotated))
-            if score > best_score:
-                best_score = score
-                best_key = name
-        return best_key
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def reset(self):
-        self.pitch_history.clear()
-        self.bpm_history.clear()
+    def _current_result(self) -> dict:
+        avg_conf = float(np.mean(self.confidence_history)) if self.confidence_history else 0.0
+        energy = float(np.sqrt(np.mean(self._raw_chunks[-1] ** 2))) if self._raw_chunks else 0.0
+        return {
+            'pitch': 0.0,
+            'key': self._current_key,
+            'bpm': round(self.bpm_stabilizer.stable_bpm, 1),
+            'energy': round(energy, 4),
+            'pitch_confidence': round(avg_conf, 3),
+            'bpm_stability': round(self._bpm_stability, 2),
+            'chord_root': self._current_chord_root,
+        }
+
+    def reset(self) -> None:
+        self.bpm_stabilizer = _BpmStabilizer()
         self.confidence_history.clear()
-        self.chroma_accum = np.zeros(12)
+        self.chord_roots.clear()
+        self._current_chord_root = 'C'
+        self._current_key = 'C'
+        self._bpm_stability = 0.0
         self.frame_count = 0
         self._raw_chunks.clear()

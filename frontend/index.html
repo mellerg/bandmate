@@ -22,16 +22,38 @@
         <div id="phaseIndicator" class="phase-indicator">Ready</div>
         <div class="meters">
           <div class="meter-group">
-            <label>Detected Key</label>
+            <label>You're playing</label>
+            <div id="chordDisplay" class="meter-value chord-display">—</div>
+          </div>
+          <div class="meter-group">
+            <label>Key</label>
             <div id="keyDisplay" class="meter-value">—</div>
           </div>
           <div class="meter-group">
-            <label>BPM</label>
+            <label>Band BPM</label>
             <div id="bpmDisplay" class="meter-value">—</div>
           </div>
           <div class="meter-group">
             <label>Genre</label>
             <div id="genreDisplay" class="meter-value">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="bandPanel" class="band-panel" style="display:none">
+        <div class="band-panel-label">Your band</div>
+        <div class="band-instruments">
+          <div class="band-instrument">
+            <div class="band-instrument-icon">🥁</div>
+            <div class="band-instrument-name">Drums</div>
+          </div>
+          <div class="band-instrument">
+            <div class="band-instrument-icon">🎸</div>
+            <div class="band-instrument-name">Bass</div>
+          </div>
+          <div class="band-instrument">
+            <div class="band-instrument-icon">🎹</div>
+            <div class="band-instrument-name">Keys</div>
           </div>
         </div>
       </div>

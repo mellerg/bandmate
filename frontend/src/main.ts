@@ -15,9 +15,11 @@ const DRAIN_INTERVAL_MS = 100;
 const startBtn = document.getElementById('startBtn') as HTMLButtonElement;
 const stopBtn = document.getElementById('stopBtn') as HTMLButtonElement;
 const phaseEl = document.getElementById('phaseIndicator') as HTMLDivElement;
+const chordEl = document.getElementById('chordDisplay') as HTMLDivElement;
 const keyEl = document.getElementById('keyDisplay') as HTMLDivElement;
 const bpmEl = document.getElementById('bpmDisplay') as HTMLDivElement;
 const genreEl = document.getElementById('genreDisplay') as HTMLDivElement;
+const bandPanelEl = document.getElementById('bandPanel') as HTMLDivElement;
 const canvas = document.getElementById('waveform') as HTMLCanvasElement;
 const logEl = document.getElementById('log') as HTMLDivElement;
 const genreBtns = document.querySelectorAll<HTMLButtonElement>('.genre-btn');
@@ -177,7 +179,8 @@ function drawWaveform(data: Uint8Array) {
 // ── Server message handler ─────────────────────────────────────────────────────
 function handleServerMessage(msg: ServerMessage) {
   if (msg.type === 'analysis' && msg.analysis) {
-    const { key, bpm, pitch_confidence, bpm_stability } = msg.analysis;
+    const { key, bpm, pitch_confidence, bpm_stability, chord_root } = msg.analysis;
+    chordEl.textContent = chord_root || '—';
     keyEl.textContent = key || '—';
     bpmEl.textContent = bpm > 0 ? Math.round(bpm).toString() : '—';
     genreEl.textContent = selectedGenre.charAt(0).toUpperCase() + selectedGenre.slice(1);
@@ -191,6 +194,7 @@ function handleServerMessage(msg: ServerMessage) {
       setPhase('jamming');
       scheduler.start(Tone.now());
       batchOffset = 0;
+      bandPanelEl.style.display = 'flex';
       log('Band joined! Jamming started.', 'success');
       startDrainLoop();
     }
@@ -278,9 +282,11 @@ function stopSession() {
   stopDrainLoop();
   player.dispose();
   setPhase('idle');
+  chordEl.textContent = '—';
   keyEl.textContent = '—';
   bpmEl.textContent = '—';
   genreEl.textContent = '—';
+  bandPanelEl.style.display = 'none';
   firstAudioSentAt = 0;
   resetKpiCards();
   startBtn.disabled = false;

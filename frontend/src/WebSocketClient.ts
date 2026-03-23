@@ -3,8 +3,9 @@ export interface AnalysisResult {
   key: string;
   bpm: number;
   energy: number;
-  pitch_confidence: number; // 0–1, aubio per-frame average
+  pitch_confidence: number; // 0–1
   bpm_stability: number;    // std dev in BPM — lower is better
+  chord_root: string;       // root note the user is currently playing, e.g. 'A'
 }
 
 export interface NoteEvent {

@@ -28,13 +28,13 @@ export class BandPlayer {
 
     // Hi-hat: metallic short burst
     this.hatSynth = new Tone.MetalSynth({
-      frequency: 400,
       envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
       harmonicity: 5.1,
       modulationIndex: 32,
       resonance: 4000,
       octaves: 1.5,
     });
+    this.hatSynth.frequency.value = 400;
     this.hatSynth.volume.value = -14;
 
     // Bass: warm sine-triangle with filter

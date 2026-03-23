@@ -184,5 +184,5 @@ if _FRONTEND_DIST.exists():
     )
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(_: str):
+    async def serve_spa(full_path: str = ""):
         return FileResponse(str(_FRONTEND_DIST / "index.html"))

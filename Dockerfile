@@ -11,17 +11,21 @@ RUN npm run build
 # ── Stage 2: Python runtime + built frontend ──────────────────────────────────
 FROM python:3.11-slim
 
-# aubio needs a C compiler; install build tools then clean up
+# aubio needs gcc + headers to compile from source
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         build-essential \
+        python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Install Python dependencies
+# CFLAGS workaround: aubio 0.4.9 has a function-pointer type mismatch
+# against newer numpy that clang/gcc flag as an error on stricter builds.
 COPY backend/requirements.txt ./backend/
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN CFLAGS="-Wno-error=incompatible-function-pointer-types" \
+    pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy backend source
 COPY backend/ ./backend/

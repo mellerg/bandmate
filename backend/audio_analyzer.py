@@ -78,8 +78,9 @@ class AudioAnalyzer:
 
         self._raw_chunks.append(samples.copy())
 
-        # Pitch confidence via YIN (fraction of voiced frames)
-        f0 = librosa.yin(
+        # Pitch detection via pYIN — returns NaN for unvoiced frames so that
+        # silence and noise do NOT pollute the key-scoring engine.
+        f0, voiced_flag, _ = librosa.pyin(
             samples,
             fmin=librosa.note_to_hz('C2'),
             fmax=librosa.note_to_hz('C7'),
@@ -87,11 +88,11 @@ class AudioAnalyzer:
             hop_length=HOP_SIZE,
             frame_length=WIN_SIZE,
         )
-        voiced = sum(1 for hz in f0 if 80 < hz < 2000)
+        voiced = int(voiced_flag.sum())
         self.confidence_history.append(voiced / max(len(f0), 1))
         self.confidence_history = self.confidence_history[-40:]
 
-        # Feed pitches into the Tonal Inference Engine
+        # Feed pitches into the Tonal Inference Engine (NaN → treated as silence)
         self.scale_engine.process_pitches(f0.tolist())
         self._current_key = self.scale_engine.get_key()
 

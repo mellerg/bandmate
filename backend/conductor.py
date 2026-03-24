@@ -124,7 +124,7 @@ class Conductor:
             self._blues_keys(events, bars, beat_dur, bar_dur, chord_root_idx, chord_tones)
         else:
             self._rock_drums(events, bars, beat_dur, bar_dur)
-            self._rock_bass(events, bars, beat_dur, bar_dur, chord_root_name, fifth_name)
+            self._rock_bass(events, bars, beat_dur, bar_dur, chord_root_name)
             self._rock_keys(events, bars, beat_dur, bar_dur, chord_root_idx, chord_tones)
 
         events.sort(key=lambda e: e.time)
@@ -215,54 +215,103 @@ class Conductor:
                         for note in voicing:
                             events.append(NoteEvent('keys', note, '16n', ante_t, vel * 0.7))
 
-    # ── Rock patterns ─────────────────────────────────────────────────────────
+    # ── Rock Engine v1 ────────────────────────────────────────────────────────
+    #
+    # Per-beat velocity targets (normalized 0–1 from MIDI 0–127):
+    #   beat 1 = 115/127 (strong downbeat)
+    #   beat 2 = 85/127  (weak)
+    #   beat 3 = 100/127 (medium)
+    #   beat 4 = 85/127  (weak)
+    #
+    # Arpeggio pattern: degrees 1-3-5-3-1-3-5-3 → chord_tones indices 0,1,2,1,0,1,2,1
+
+    _BEAT_VEL   = [115/127, 85/127, 100/127, 85/127]   # per quarter-beat (0-indexed)
+    _ARP_PATTERN = [0, 1, 2, 1, 0, 1, 2, 1]            # 8-tick arpeggio index sequence
+
+    def _vel_scale(self) -> float:
+        """Velocity multiplier driven by user energy (loud player → +up to 15%)."""
+        return 1.0 + self.energy * 0.15
 
     def _rock_drums(self, events: list, bars: int, beat_dur: float, bar_dur: float) -> None:
-        """Rock 4/4: kick on 1&3, snare on 2&4, straight 8th hi-hats."""
-        half = beat_dur / 2
+        """
+        Rock Engine v1 drums:
+          • Normal: kick on ticks 0&4 (beats 1&3), snare on ticks 2&6 (beats 2&4),
+            hi-hat every 8th (downbeats louder than "ands").
+          • 4th-bar fill (from beat 3): kick on ticks 4&5, double-snare on ticks 6&7.
+          • Velocity accents per spec: beat-1=115, beat-2=85, beat-3=100, beat-4=85.
+        """
+        eighth   = beat_dur * 0.5
+        vs       = self._vel_scale()
+        is_fill  = (self._chunk_count % 4 == 3)
 
         for bar in range(bars):
             b0 = bar * bar_dur
-            for beat in range(4):
-                t = b0 + beat * beat_dur
-                if beat in (0, 2):
-                    events.append(NoteEvent('drums', 'kick',  '8n',  t,       0.92 * self._dv()))
-                if beat in (1, 3):
-                    events.append(NoteEvent('drums', 'snare', '8n',  t,       0.88 * self._dv()))
-                events.append(NoteEvent('drums', 'hat', '16n', t,       0.55 * self._dv()))
-                if t + half < b0 + bar_dur:
-                    events.append(NoteEvent('drums', 'hat', '16n', t + half, 0.42 * self._dv()))
+            for tick in range(8):
+                t    = b0 + tick * eighth
+                beat = tick // 2    # quarter-beat index 0-3
+
+                if is_fill and bar == bars - 1 and tick >= 4:
+                    # ── 4th-bar fill: "boom-boom, tak-tak" ───────────────
+                    if tick in (4, 5):
+                        events.append(NoteEvent('drums', 'kick',  '16n', t,
+                                                min(1.0, (110/127) * vs * self._dv())))
+                    if tick in (6, 7):
+                        events.append(NoteEvent('drums', 'snare', '16n', t,
+                                                min(1.0, (120/127) * vs * self._dv())))
+                    # Hi-Hat open/accent on all fill ticks
+                    events.append(NoteEvent('drums', 'hat', '16n', t,
+                                            min(1.0, 0.80 * vs * self._dv())))
+                else:
+                    # ── Normal rock pattern ───────────────────────────────
+                    bv = min(1.0, self._BEAT_VEL[beat] * vs * self._dv())
+                    if tick in (0, 4):   # beats 1 & 3: kick
+                        events.append(NoteEvent('drums', 'kick',  '8n', t, bv))
+                    if tick in (2, 6):   # beats 2 & 4: snare
+                        events.append(NoteEvent('drums', 'snare', '8n', t, bv))
+                    # Hi-Hat: downbeats louder than "and"s
+                    hat_v = min(1.0, (0.75 if tick % 2 == 0 else 0.55) * vs * self._dv())
+                    events.append(NoteEvent('drums', 'hat', '16n', t, hat_v))
 
     def _rock_bass(
         self, events: list, bars: int, beat_dur: float, bar_dur: float,
-        root: str, fifth: str,
+        root: str,
     ) -> None:
-        """Rock bass: root on 1&3, fifth on 2, root on 4. 8ths on high energy."""
+        """
+        Rock Engine v1 bass: root note on every quarter beat with dynamic velocity.
+        Left-hand piano doubles the root one octave higher (octave 3).
+        """
+        vs = self._vel_scale()
         for bar in range(bars):
             b0 = bar * bar_dur
-            beat_notes = [root, fifth, root, fifth]
             for beat in range(4):
-                t = b0 + beat * beat_dur
-                note = note_with_octave(beat_notes[beat], 2)
-                events.append(NoteEvent('bass', note, '4n', t, 0.82))
-                # Extra 8th on the "and" when energy is high
-                if self.energy > 0.6 and beat in (0, 2):
-                    events.append(NoteEvent('bass', note, '8n', t + beat_dur * 0.5, 0.60))
+                t   = b0 + beat * beat_dur
+                vel = min(1.0, self._BEAT_VEL[beat] * vs)
+                # Electric bass: octave 2
+                events.append(NoteEvent('bass', note_with_octave(root, 2), '4n', t, vel))
+                # Keys left hand: doubles root one octave above bass (octave 3)
+                events.append(NoteEvent('keys', note_with_octave(root, 3), '4n', t,
+                                        max(0.0, vel - 10/127)))
 
     def _rock_keys(
         self, events: list, bars: int, beat_dur: float, bar_dur: float,
         chord_root_idx: int, chord_tones: list[str],
     ) -> None:
-        """Rock keys: power chord stabs on beats 1 and 3."""
-        vel = max(0.50, min(0.80, 0.55 * self.energy + 0.3))
-        voicing = [note_with_octave(ct, 4) for ct in chord_tones]
+        """
+        Rock Engine v1 right-hand arpeggio:
+        Pattern 1-3-5-3-1-3-5-3 across 8 8th-note slots per measure.
+        Uses chord_tones indices 0=root, 1=3rd, 2=5th.
+        """
+        eighth  = beat_dur * 0.5
+        rh_vel  = min(1.0, max(0.40, 0.63 * self._vel_scale()))
+        n       = len(chord_tones)
 
         for bar in range(bars):
             b0 = bar * bar_dur
-            for stab_beat in [0, 2]:
-                t = b0 + stab_beat * beat_dur
-                for note in voicing:
-                    events.append(NoteEvent('keys', note, '4n', t, vel))
+            for tick in range(8):
+                t    = b0 + tick * eighth
+                idx  = self._ARP_PATTERN[tick] % n
+                note = note_with_octave(chord_tones[idx], 4)
+                events.append(NoteEvent('keys', note, '8n', t, rh_vel))
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 

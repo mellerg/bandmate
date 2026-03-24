@@ -56,18 +56,32 @@ def detect_chord(chroma: np.ndarray) -> tuple[str, str]:
 
 def infer_key_from_chord_sequence(chord_roots: list[str]) -> str:
     """
-    Find the key that contains the most of the detected chord roots as
-    diatonic chords.  Breaks ties by preferring sharps-heavy keys last
-    (defaults toward flatter keys, which is perceptually neutral).
+    Two-rule key inference:
+
+    Rule 1 — Majority chord: if one chord root appears ≥60% of the time it is
+    almost certainly the tonic.  Example: A A A A → key = A.
+
+    Rule 2 — Diatonic scoring: score every possible key by counting how many
+    of the detected chords are diatonic to it, then pick the highest.
+    Example: A D E → all diatonic to A major → key = A.
     """
     if not chord_roots:
         return 'C'
+
+    from collections import Counter
+    counts = Counter(chord_roots)
+    most_common, mc_count = counts.most_common(1)[0]
+
+    # Rule 1: dominant chord = tonic
+    if mc_count / len(chord_roots) >= 0.60:
+        return most_common
+
+    # Rule 2: diatonic scoring with circle-of-fifths tiebreak
     scores: dict[str, float] = {}
     for key_idx, key_name in enumerate(NOTES):
         diatonic = {NOTES[(key_idx + off) % 12] for off in DIATONIC_OFFSETS}
         scores[key_name] = sum(1.0 for c in chord_roots if c in diatonic)
     best_score = max(scores.values())
-    # Among tied keys, prefer the one that appears earlier in the circle of fifths
     circle = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'F', 'A#', 'D#', 'G#', 'C#']
     candidates = [k for k in circle if scores.get(k, 0) == best_score]
     return candidates[0] if candidates else max(scores, key=lambda k: scores[k])

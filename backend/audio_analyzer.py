@@ -78,9 +78,11 @@ class AudioAnalyzer:
 
         self._raw_chunks.append(samples.copy())
 
-        # Pitch detection via pYIN — returns NaN for unvoiced frames so that
-        # silence and noise do NOT pollute the key-scoring engine.
-        f0, voiced_flag, _ = librosa.pyin(
+        # Pitch detection via YIN (fast, real-time safe).
+        # Energy gate: compute per-frame RMS so that noise/silence frames are
+        # passed as 0.0 → ScaleInferenceEngine treats them as silence rather than
+        # spurious pitched input.
+        f0 = librosa.yin(
             samples,
             fmin=librosa.note_to_hz('C2'),
             fmax=librosa.note_to_hz('C7'),
@@ -88,12 +90,22 @@ class AudioAnalyzer:
             hop_length=HOP_SIZE,
             frame_length=WIN_SIZE,
         )
-        voiced = int(voiced_flag.sum())
+        gated: list[float] = []
+        voiced = 0
+        for i, hz in enumerate(f0):
+            start = i * HOP_SIZE
+            frame = samples[start:start + WIN_SIZE]
+            rms = float(np.sqrt(np.mean(frame ** 2))) if len(frame) > 0 else 0.0
+            if rms > 0.008 and 80 < hz < 2000:
+                gated.append(float(hz))
+                voiced += 1
+            else:
+                gated.append(0.0)
         self.confidence_history.append(voiced / max(len(f0), 1))
         self.confidence_history = self.confidence_history[-40:]
 
-        # Feed pitches into the Tonal Inference Engine (NaN → treated as silence)
-        self.scale_engine.process_pitches(f0.tolist())
+        # Feed energy-gated pitches into the Tonal Inference Engine
+        self.scale_engine.process_pitches(gated)
         self._current_key = self.scale_engine.get_key()
 
         # Chord detection from chroma (for UI display only)

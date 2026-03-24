@@ -113,9 +113,13 @@ async def websocket_endpoint(ws: WebSocket):
                     elif msg.get("type") == "start_generation":
                         # Sent by frontend after the listen phase — starts the scheduler
                         genre = msg.get("genre", genre)
-                        # Run full-buffer analysis now that we have 4s of audio
+                        # Run full-buffer analysis in a thread so it doesn't block
+                        # the async event loop (librosa beat_track is CPU-bound).
                         try:
-                            final = analyzer.finalize_analysis()
+                            loop = asyncio.get_event_loop()
+                            final = await loop.run_in_executor(
+                                None, analyzer.finalize_analysis
+                            )
                         except Exception as e:
                             print(f"[WS] finalize_analysis error: {e}")
                             final = {'key': 'A', 'bpm': 100.0, 'chord_root': 'A'}

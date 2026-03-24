@@ -1,7 +1,10 @@
 import * as Tone from 'tone';
 import type { NoteEvent } from './WebSocketClient';
 
-// ── Sample CDNs ───────────────────────────────────────────────────────────────
+// ── Sample sources ────────────────────────────────────────────────────────────
+// Drum samples — bundled in /public/drums/ (served by Vite / the backend)
+const DRUMS_BASE = '/drums/';
+
 // Salamander Grand Piano — real recorded Steinway, hosted by Tone.js project
 const PIANO_BASE = 'https://tonejs.github.io/audio/salamander/';
 const PIANO_URLS: Record<string, string> = {
@@ -11,7 +14,6 @@ const PIANO_URLS: Record<string, string> = {
 };
 
 // Electric Bass (finger-style) — nbrosowsky/tonejs-instruments on GitHub Pages
-// Covers E1–A#3, which spans the octave 2 range the conductor uses.
 const BASS_BASE = 'https://nbrosowsky.github.io/tonejs-instruments/samples/bass-electric/';
 const BASS_URLS: Record<string, string> = {
   'A#1': 'As1.mp3', 'C#2': 'Cs2.mp3', E2: 'E2.mp3', G2: 'G2.mp3',
@@ -21,11 +23,10 @@ const BASS_URLS: Record<string, string> = {
 // ── BandPlayer ────────────────────────────────────────────────────────────────
 
 export class BandPlayer {
-  // Drums — synth-modelled (808/909 style: acceptable in blues & rock)
-  private kickSynth: Tone.MembraneSynth;
-  private snareSynth: Tone.NoiseSynth;
-  private snareFilter: Tone.Filter;      // bandpass gives snare its "crack"
-  private hatSynth: Tone.MetalSynth;
+  // Drums — real recorded samples
+  private kickSampler: Tone.Sampler;
+  private snareSampler: Tone.Sampler;
+  private hatSampler: Tone.Sampler;
 
   // Bass & keys — real recorded samples
   private bassSampler: Tone.Sampler;
@@ -35,37 +36,19 @@ export class BandPlayer {
   private isReady = false;
 
   constructor() {
-    // ── Kick: punchy sub-thump (808 style) ──────────────────────────────
-    this.kickSynth = new Tone.MembraneSynth({
-      pitchDecay: 0.06,
-      octaves: 7,
-      envelope: { attack: 0.001, decay: 0.38, sustain: 0, release: 0.1 },
-    });
-    this.kickSynth.volume.value = -2;
-    this.kickSynth.toDestination();
+    // ── Drums: real recorded samples ────────────────────────────────────
+    // Each sample is mapped to A3 so Tone.js plays it at original pitch.
+    this.kickSampler = new Tone.Sampler({ urls: { A3: 'Kick.mp3' }, baseUrl: DRUMS_BASE });
+    this.kickSampler.volume.value = 0;
+    this.kickSampler.toDestination();
 
-    // ── Snare: filtered white noise — bandpass gives the "crack" ────────
-    // The filter centres around the frequency where real snare wires resonate.
-    this.snareFilter = new Tone.Filter({ frequency: 2200, type: 'bandpass', Q: 0.7 });
-    this.snareFilter.toDestination();
-    this.snareSynth = new Tone.NoiseSynth({
-      noise: { type: 'white' },
-      envelope: { attack: 0.001, decay: 0.18, sustain: 0.01, release: 0.08 },
-    });
-    this.snareSynth.volume.value = -5;
-    this.snareSynth.connect(this.snareFilter);
+    this.snareSampler = new Tone.Sampler({ urls: { A3: 'Snare.mp3' }, baseUrl: DRUMS_BASE });
+    this.snareSampler.volume.value = -2;
+    this.snareSampler.toDestination();
 
-    // ── Hi-hat: tight metallic ring (closed hat) ─────────────────────────
-    this.hatSynth = new Tone.MetalSynth({
-      envelope: { attack: 0.001, decay: 0.04, release: 0.01 },
-      harmonicity: 5.1,
-      modulationIndex: 32,
-      resonance: 4000,
-      octaves: 1.5,
-    });
-    this.hatSynth.frequency.value = 400;
-    this.hatSynth.volume.value = -16;
-    this.hatSynth.toDestination();
+    this.hatSampler = new Tone.Sampler({ urls: { A3: 'Hihat.mp3' }, baseUrl: DRUMS_BASE });
+    this.hatSampler.volume.value = -6;
+    this.hatSampler.toDestination();
 
     // ── Electric bass: real finger-plucked samples ───────────────────────
     // Tone.js Sampler interpolates pitch between reference samples, so notes
@@ -101,11 +84,11 @@ export class BandPlayer {
     switch (event.instrument) {
       case 'drums':
         if (event.note === 'kick') {
-          this.kickSynth.triggerAttackRelease('C1', event.duration, toneTime, event.velocity);
+          this.kickSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
         } else if (event.note === 'snare') {
-          this.snareSynth.triggerAttackRelease(event.duration, toneTime, event.velocity);
+          this.snareSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
         } else {
-          this.hatSynth.triggerAttackRelease(event.duration, toneTime, event.velocity);
+          this.hatSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
         }
         break;
       case 'bass':
@@ -118,10 +101,9 @@ export class BandPlayer {
   }
 
   dispose(): void {
-    this.kickSynth.dispose();
-    this.snareSynth.dispose();
-    this.snareFilter.dispose();
-    this.hatSynth.dispose();
+    this.kickSampler.dispose();
+    this.snareSampler.dispose();
+    this.hatSampler.dispose();
     this.bassSampler.dispose();
     this.keysSampler.dispose();
     this.keysReverb.dispose();

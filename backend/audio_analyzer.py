@@ -1,7 +1,7 @@
 import time
 import numpy as np
 import librosa
-from music_theory import detect_chord, infer_key_from_chord_sequence
+from music_theory import detect_chord, ScaleInferenceEngine
 
 SAMPLE_RATE = 22050
 HOP_SIZE = 512
@@ -57,7 +57,7 @@ class AudioAnalyzer:
     def __init__(self) -> None:
         self.bpm_stabilizer = _BpmStabilizer()
         self.confidence_history: list[float] = []
-        self.chord_roots: list[str] = []       # chord sequence from listen phase
+        self.scale_engine = ScaleInferenceEngine(sample_rate=SAMPLE_RATE, hop_size=HOP_SIZE)
         self._current_chord_root: str = 'C'
         self._current_key: str = 'C'
         self._bpm_stability: float = 0.0      # set after finalize_analysis()
@@ -91,16 +91,16 @@ class AudioAnalyzer:
         self.confidence_history.append(voiced / max(len(f0), 1))
         self.confidence_history = self.confidence_history[-40:]
 
-        # Chord detection from chroma
+        # Feed pitches into the Tonal Inference Engine
+        self.scale_engine.process_pitches(f0.tolist())
+        self._current_key = self.scale_engine.get_key()
+
+        # Chord detection from chroma (for UI display only)
         chroma = librosa.feature.chroma_stft(
             y=samples, sr=SAMPLE_RATE, hop_length=HOP_SIZE
         ).mean(axis=1)
         root, _ = detect_chord(chroma)
         self._current_chord_root = root
-        self.chord_roots.append(root)
-
-        # Live key estimate from accumulated chord sequence
-        self._current_key = infer_key_from_chord_sequence(self.chord_roots)
 
         self.frame_count += 1
         return self._current_result()
@@ -146,14 +146,14 @@ class AudioAnalyzer:
                         bpm_segs.append(v)
             self._bpm_stability = float(np.std(bpm_segs)) if len(bpm_segs) > 1 else 0.0
 
-        # ── Key: chord-progression based ──────────────────────────────────
-        self._current_key = infer_key_from_chord_sequence(self.chord_roots)
+        # ── Key: Tonal Inference Engine (force commit) ────────────────────
+        self._current_key = self.scale_engine.get_key(force=True)
 
         stable_bpm = self.bpm_stabilizer.stable_bpm
         print(
             f"[Analyzer] key={self._current_key}, bpm={stable_bpm:.1f}, "
             f"stability=±{self._bpm_stability:.1f}, "
-            f"buffer={duration_s:.1f}s, chords={self.chord_roots[-6:]}"
+            f"buffer={duration_s:.1f}s"
         )
         return {
             'bpm': stable_bpm,
@@ -179,7 +179,7 @@ class AudioAnalyzer:
     def reset(self) -> None:
         self.bpm_stabilizer = _BpmStabilizer()
         self.confidence_history.clear()
-        self.chord_roots.clear()
+        self.scale_engine.reset()
         self._current_chord_root = 'C'
         self._current_key = 'C'
         self._bpm_stability = 0.0

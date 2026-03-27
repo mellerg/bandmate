@@ -113,16 +113,36 @@ async def websocket_endpoint(ws: WebSocket):
                     elif msg.get("type") == "start_generation":
                         # Sent by frontend after the listen phase — starts the scheduler
                         genre = msg.get("genre", genre)
+                        print(f"[WS] start_generation received, genre={genre}")
+
                         # Run full-buffer analysis in a thread so it doesn't block
-                        # the async event loop (librosa beat_track is CPU-bound).
+                        # the async event loop (librosa yin + beat_track are CPU-bound).
+                        # Meanwhile send keepalive pings so Render's proxy (50s idle
+                        # timeout) doesn't close the WebSocket before notes arrive.
+                        loop = asyncio.get_event_loop()
+                        analysis_future = loop.run_in_executor(
+                            None, analyzer.finalize_analysis
+                        )
                         try:
-                            loop = asyncio.get_event_loop()
-                            final = await loop.run_in_executor(
-                                None, analyzer.finalize_analysis
-                            )
+                            while not analysis_future.done():
+                                await ws.send_text(json.dumps({
+                                    "type": "status",
+                                    "message": "Analyzing your playing..."
+                                }))
+                                await asyncio.wait_for(
+                                    asyncio.shield(analysis_future), timeout=5.0
+                                )
+                        except asyncio.TimeoutError:
+                            pass  # still running — loop again and ping
+                        except Exception as e:
+                            print(f"[WS] Analysis ping error: {e}")
+
+                        try:
+                            final = await analysis_future
                         except Exception as e:
                             print(f"[WS] finalize_analysis error: {e}")
                             final = {'key': 'A', 'bpm': 100.0, 'chord_root': 'A'}
+
                         conductor.update(
                             key=final['key'],
                             bpm=final['bpm'],

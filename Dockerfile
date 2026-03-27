@@ -25,5 +25,8 @@ COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 EXPOSE 8000
 
+# Unbuffered output so logs appear immediately in Render dashboard
+ENV PYTHONUNBUFFERED=1
+
 # Run from the backend directory so relative imports resolve correctly
 CMD ["sh", "-c", "cd /app/backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

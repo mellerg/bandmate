@@ -57,6 +57,13 @@ async def health():
     return {"status": "ok", "service": "bandmate"}
 
 
+@app.get("/health/drums", include_in_schema=False)
+async def health_drums():
+    dist = Path(__file__).parent.parent / "frontend" / "dist" / "drums"
+    files = {f.name: f.stat().st_size for f in dist.iterdir()} if dist.exists() else {}
+    return {"drums_dir_exists": dist.exists(), "files": files}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()

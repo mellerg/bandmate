@@ -211,35 +211,32 @@ async def websocket_endpoint(ws: WebSocket):
 # This runs after all API/WS routes so they always take priority.
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
-print(f"[static] dist exists: {_FRONTEND_DIST.exists()}")
 if _FRONTEND_DIST.exists():
-    import os
-    print(f"[static] dist contents: {os.listdir(str(_FRONTEND_DIST))}")
     app.mount(
         "/assets",
         StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
         name="assets",
     )
-    # Drum sample files live in /public/drums/ → dist/drums/
-    # Must be mounted BEFORE the SPA catch-all or the catch-all intercepts
-    # /drums/*.mp3 and returns index.html, causing audio decoding failures.
-    drums_dir = _FRONTEND_DIST / "drums"
-    print(f"[static] drums dir exists: {drums_dir.exists()}")
-    if drums_dir.exists():
-        print(f"[static] drums contents: {os.listdir(str(drums_dir))}")
-        app.mount(
-            "/drums",
-            StaticFiles(directory=str(drums_dir)),
-            name="drums",
-        )
 
-    # AudioWorklet processor script — must be served before the SPA catch-all.
+    # AudioWorklet processor and drum samples are served as explicit routes so
+    # they always take priority over the SPA catch-all, regardless of Starlette
+    # routing precedence between Mount and Route objects.
     @app.get("/audio-processor.js", include_in_schema=False)
     async def serve_audio_worklet():
         return FileResponse(
             str(_FRONTEND_DIST / "audio-processor.js"),
             media_type="application/javascript",
         )
+
+    _DRUM_MIME = "audio/mpeg"
+
+    @app.get("/drums/{filename}", include_in_schema=False)
+    async def serve_drum(filename: str):
+        path = _FRONTEND_DIST / "drums" / filename
+        if not path.exists() or path.suffix.lower() not in (".mp3", ".wav", ".ogg"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        return FileResponse(str(path), media_type=_DRUM_MIME)
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):

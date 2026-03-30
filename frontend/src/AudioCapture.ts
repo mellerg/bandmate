@@ -1,7 +1,7 @@
 export class AudioCapture {
   private audioContext: AudioContext | null = null;
   private stream: MediaStream | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
 
@@ -9,7 +9,6 @@ export class AudioCapture {
   public onWaveformData: ((data: Uint8Array) => void) | null = null;
 
   readonly sampleRate = 22050;
-  readonly chunkSize = 2048;
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -25,28 +24,25 @@ export class AudioCapture {
     this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
     this.source = this.audioContext.createMediaStreamSource(this.stream);
 
-    // Analyser for waveform visualization
+    // Analyser for waveform visualization (unchanged)
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
     this.source.connect(this.analyser);
 
-    // ScriptProcessor for raw PCM extraction.
-    // Route through a silent gain node — the processor must be in the audio
-    // graph to fire onaudioprocess, but mic audio must NOT reach the speakers.
-    const silentGain = this.audioContext.createGain();
-    silentGain.gain.value = 0;
-    silentGain.connect(this.audioContext.destination);
+    // AudioWorkletNode replaces the deprecated ScriptProcessorNode.
+    // The worklet runs on a dedicated audio thread — no main-thread jitter.
+    await this.audioContext.audioWorklet.addModule('/audio-processor.js');
+    this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-processor');
 
-    this.processor = this.audioContext.createScriptProcessor(this.chunkSize, 1, 1);
-    this.source.connect(this.processor);
-    this.processor.connect(silentGain);
-
-    this.processor.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
+    this.workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
       if (this.onAudioChunk) {
-        this.onAudioChunk(new Float32Array(inputData));
+        this.onAudioChunk(new Float32Array(e.data));
       }
     };
+
+    // Connect source → worklet. The worklet output is silent (not connected
+    // to destination) so mic audio never plays back through speakers.
+    this.source.connect(this.workletNode);
 
     // Waveform loop
     const waveformData = new Uint8Array(this.analyser.frequencyBinCount);
@@ -60,12 +56,12 @@ export class AudioCapture {
   }
 
   stop(): void {
-    this.processor?.disconnect();
+    this.workletNode?.disconnect();
     this.source?.disconnect();
     this.analyser?.disconnect();
     this.stream?.getTracks().forEach((t) => t.stop());
     this.audioContext?.close();
-    this.processor = null;
+    this.workletNode = null;
     this.source = null;
     this.analyser = null;
     this.stream = null;

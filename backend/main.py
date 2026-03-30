@@ -227,6 +227,14 @@ if _FRONTEND_DIST.exists():
             name="drums",
         )
 
+    # AudioWorklet processor script — must be served before the SPA catch-all.
+    @app.get("/audio-processor.js", include_in_schema=False)
+    async def serve_audio_worklet():
+        return FileResponse(
+            str(_FRONTEND_DIST / "audio-processor.js"),
+            media_type="application/javascript",
+        )
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):
         return FileResponse(

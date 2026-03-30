@@ -211,7 +211,10 @@ async def websocket_endpoint(ws: WebSocket):
 # This runs after all API/WS routes so they always take priority.
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
+print(f"[static] dist exists: {_FRONTEND_DIST.exists()}")
 if _FRONTEND_DIST.exists():
+    import os
+    print(f"[static] dist contents: {os.listdir(str(_FRONTEND_DIST))}")
     app.mount(
         "/assets",
         StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
@@ -220,10 +223,13 @@ if _FRONTEND_DIST.exists():
     # Drum sample files live in /public/drums/ → dist/drums/
     # Must be mounted BEFORE the SPA catch-all or the catch-all intercepts
     # /drums/*.mp3 and returns index.html, causing audio decoding failures.
-    if (_FRONTEND_DIST / "drums").exists():
+    drums_dir = _FRONTEND_DIST / "drums"
+    print(f"[static] drums dir exists: {drums_dir.exists()}")
+    if drums_dir.exists():
+        print(f"[static] drums contents: {os.listdir(str(drums_dir))}")
         app.mount(
             "/drums",
-            StaticFiles(directory=str(_FRONTEND_DIST / "drums")),
+            StaticFiles(directory=str(drums_dir)),
             name="drums",
         )
 

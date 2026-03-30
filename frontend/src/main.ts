@@ -50,7 +50,7 @@ let firstAudioSentAt = 0; // performance.now() when first PCM chunk was sent
 const capture = new AudioCapture();
 const wsClient = new WebSocketClient(WS_URL);
 const scheduler = new PreBufferScheduler();
-let player = new BandPlayer();
+let player: BandPlayer | null = null;
 
 // ── KPI helpers ───────────────────────────────────────────────────────────────
 type KpiColor = 'green' | 'orange' | 'red';
@@ -217,7 +217,7 @@ function startDrainLoop() {
   drainTimer = setInterval(() => {
     const due = scheduler.drainDue(Tone.now());
     for (const event of due) {
-      player.scheduleNote(event as NoteEvent, event.time);
+      player?.scheduleNote(event as NoteEvent, event.time);
     }
   }, DRAIN_INTERVAL_MS);
 }
@@ -234,7 +234,10 @@ async function startSession() {
   startBtn.disabled = true;
   stopBtn.disabled = false;
 
-  // Recreate fresh on every session — disposed Tone.js nodes cannot be reused
+  // Unlock AudioContext with user gesture BEFORE creating any Tone.js nodes.
+  // Constructing BandPlayer before Tone.start() causes "AudioContext not allowed"
+  // and EncodingError when decoding audio samples.
+  await Tone.start();
   player = new BandPlayer();
   await player.init();
 
@@ -282,7 +285,8 @@ function stopSession() {
   wsClient.disconnect();
   scheduler.stop();
   stopDrainLoop();
-  player.dispose();
+  player?.dispose();
+  player = null;
   setPhase('idle');
   chordEl.textContent = '—';
   keyEl.textContent = '—';

@@ -56,8 +56,8 @@ export class BandPlayer {
   }
 
   async init(): Promise<void> {
-    await Tone.start();
-    // Only drum samplers need loading (local MP3s) — synths are instant
+    // Tone.start() was already called before constructing this instance.
+    // Just wait for drum sample files to finish downloading.
     await Tone.loaded();
     this.isReady = true;
     console.log('[BandPlayer] Ready — drums loaded, synths active');

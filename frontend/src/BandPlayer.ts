@@ -1,26 +1,29 @@
 import * as Tone from 'tone';
 import type { NoteEvent } from './WebSocketClient';
 
-// Drum samples — bundled in /public/drums/ (served locally, always available)
 const DRUMS_BASE = '/drums/';
 
 export class BandPlayer {
-  // Drums: real recorded samples (local — reliable)
-  private kickSampler: Tone.Sampler;
-  private snareSampler: Tone.Sampler;
-  private hatSampler: Tone.Sampler;
-
-  // Bass: synthesized (MonoSynth — no CDN dependency)
-  private bassSynth: Tone.MonoSynth;
-
-  // Keys: synthesized with reverb (PolySynth — no CDN dependency)
-  private keysSynth: Tone.PolySynth<Tone.Synth>;
-  private keysReverb: Tone.Reverb;
+  // All instruments are null until init() creates them after Tone.start()
+  private kickSampler: Tone.Sampler | null = null;
+  private snareSampler: Tone.Sampler | null = null;
+  private hatSampler: Tone.Sampler | null = null;
+  private bassSynth: Tone.MonoSynth | null = null;
+  private keysSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  private keysReverb: Tone.Reverb | null = null;
 
   private isReady = false;
 
-  constructor() {
-    // ── Drums: real recorded samples ────────────────────────────────────
+  // Empty constructor — no Tone.js calls here.
+  // Chrome blocks AudioContext before user gesture; constructing any Tone.js
+  // node (Sampler, Synth, Reverb) before Tone.start() causes EncodingErrors.
+  constructor() {}
+
+  async init(): Promise<void> {
+    // 1. Resume/unlock the AudioContext with the active user-gesture token.
+    await Tone.start();
+
+    // 2. Now that the context is running, create all audio nodes.
     this.kickSampler = new Tone.Sampler({ urls: { A3: 'Kick.mp3' }, baseUrl: DRUMS_BASE });
     this.kickSampler.volume.value = 2;
     this.kickSampler.toDestination();
@@ -33,7 +36,6 @@ export class BandPlayer {
     this.hatSampler.volume.value = -6;
     this.hatSampler.toDestination();
 
-    // ── Bass: synthesized — plucky sawtooth with filter envelope ─────────
     this.bassSynth = new Tone.MonoSynth({
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 0.6 },
@@ -45,7 +47,6 @@ export class BandPlayer {
     this.bassSynth.volume.value = -4;
     this.bassSynth.toDestination();
 
-    // ── Keys: polyphonic triangle with reverb — soft piano-like ─────────
     this.keysReverb = new Tone.Reverb({ decay: 1.5, wet: 0.3 }).toDestination();
     this.keysSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'triangle' },
@@ -53,14 +54,16 @@ export class BandPlayer {
     });
     this.keysSynth.volume.value = -8;
     this.keysSynth.connect(this.keysReverb);
-  }
 
-  async init(): Promise<void> {
-    // Tone.start() was already called before constructing this instance.
-    // Just wait for drum sample files to finish downloading.
-    await Tone.loaded();
+    // 3. Wait for drum samples to finish downloading and decoding.
+    try {
+      await Tone.loaded();
+    } catch (e) {
+      console.warn('[BandPlayer] Sample load error (synths will still work):', e);
+    }
+
     this.isReady = true;
-    console.log('[BandPlayer] Ready — drums loaded, synths active');
+    console.log('[BandPlayer] Ready');
   }
 
   scheduleNote(event: NoteEvent, absoluteTime: number): void {
@@ -73,18 +76,18 @@ export class BandPlayer {
       switch (event.instrument) {
         case 'drums':
           if (event.note === 'kick') {
-            this.kickSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
+            this.kickSampler?.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
           } else if (event.note === 'snare') {
-            this.snareSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
+            this.snareSampler?.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
           } else {
-            this.hatSampler.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
+            this.hatSampler?.triggerAttackRelease('A3', event.duration, toneTime, event.velocity);
           }
           break;
         case 'bass':
-          this.bassSynth.triggerAttackRelease(event.note, event.duration, toneTime, event.velocity);
+          this.bassSynth?.triggerAttackRelease(event.note, event.duration, toneTime, event.velocity);
           break;
         case 'keys':
-          this.keysSynth.triggerAttackRelease(event.note, event.duration, toneTime, event.velocity);
+          this.keysSynth?.triggerAttackRelease(event.note, event.duration, toneTime, event.velocity);
           break;
       }
     } catch (err) {
@@ -93,12 +96,12 @@ export class BandPlayer {
   }
 
   dispose(): void {
-    this.kickSampler.dispose();
-    this.snareSampler.dispose();
-    this.hatSampler.dispose();
-    this.bassSynth.dispose();
-    this.keysSynth.dispose();
-    this.keysReverb.dispose();
+    this.kickSampler?.dispose();
+    this.snareSampler?.dispose();
+    this.hatSampler?.dispose();
+    this.bassSynth?.dispose();
+    this.keysSynth?.dispose();
+    this.keysReverb?.dispose();
     this.isReady = false;
   }
 }

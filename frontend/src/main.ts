@@ -234,10 +234,8 @@ async function startSession() {
   startBtn.disabled = true;
   stopBtn.disabled = false;
 
-  // Unlock AudioContext with user gesture BEFORE creating any Tone.js nodes.
-  // Constructing BandPlayer before Tone.start() causes "AudioContext not allowed"
-  // and EncodingError when decoding audio samples.
-  await Tone.start();
+  // BandPlayer.init() calls Tone.start() then constructs all audio nodes.
+  // Creating nodes before Tone.start() causes EncodingErrors in Chrome.
   player = new BandPlayer();
   await player.init();
 

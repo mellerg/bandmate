@@ -247,8 +247,17 @@ if _FRONTEND_DIST.exists():
             media_type="application/javascript",
         )
 
+    _DRUM_EXTS = {".mp3", ".wav", ".ogg"}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):
+        # Serve drum samples directly — must be handled here because a catch-all
+        # path route beats all other routes and mounts in FastAPI 0.109.
+        if full_path.startswith("drums/"):
+            drum_file = _FRONTEND_DIST / full_path
+            if drum_file.exists() and drum_file.suffix.lower() in _DRUM_EXTS:
+                print(f"[static] serving drum: {full_path}")
+                return FileResponse(str(drum_file), media_type="audio/mpeg")
         return FileResponse(
             str(_FRONTEND_DIST / "index.html"),
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},

@@ -8,8 +8,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
 
 from audio_analyzer import AudioAnalyzer
 from conductor import Conductor
@@ -25,24 +23,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bandmate POC Server", lifespan=lifespan)
 
-# ── Drum file middleware ───────────────────────────────────────────────────────
-# Middleware intercepts requests before routing, guaranteeing that /drums/*.mp3
-# is never swallowed by the SPA catch-all route /{full_path:path}.
-_DRUMS_PATH = Path(__file__).parent.parent / "frontend" / "dist" / "drums"
-_ALLOWED_DRUM_EXTS = {".mp3", ".wav", ".ogg"}
-
-class DrumFileMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: StarletteRequest, call_next):
-        path = request.url.path
-        if path.startswith("/drums/"):
-            filename = path[7:]  # strip "/drums/"
-            if "/" not in filename and Path(filename).suffix.lower() in _ALLOWED_DRUM_EXTS:
-                file_path = _DRUMS_PATH / filename
-                if file_path.exists():
-                    return FileResponse(str(file_path), media_type="audio/mpeg")
-        return await call_next(request)
-
-app.add_middleware(DrumFileMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -235,37 +215,14 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # ── Serve built frontend (production) ────────────────────────────────────────
-# This runs after all API/WS routes so they always take priority.
+# StaticFiles(html=True) mounted at "/" serves any matching file (drums, assets,
+# audio-processor.js) and falls back to index.html for unknown paths (SPA routes).
+# It is registered AFTER all API/WS routes so those always take priority.
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 if _FRONTEND_DIST.exists():
     app.mount(
-        "/assets",
-        StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
-        name="assets",
+        "/",
+        StaticFiles(directory=str(_FRONTEND_DIST), html=True),
+        name="frontend",
     )
-
-    # AudioWorklet processor served as explicit route (drums are handled by
-    # DrumFileMiddleware above, which intercepts before routing).
-    @app.get("/audio-processor.js", include_in_schema=False)
-    async def serve_audio_worklet():
-        return FileResponse(
-            str(_FRONTEND_DIST / "audio-processor.js"),
-            media_type="application/javascript",
-        )
-
-    _DRUM_EXTS = {".mp3", ".wav", ".ogg"}
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str = ""):
-        # Serve drum samples directly — must be handled here because a catch-all
-        # path route beats all other routes and mounts in FastAPI 0.109.
-        if full_path.startswith("drums/"):
-            drum_file = _FRONTEND_DIST / full_path
-            if drum_file.exists() and drum_file.suffix.lower() in _DRUM_EXTS:
-                print(f"[static] serving drum: {full_path}")
-                return FileResponse(str(drum_file), media_type="audio/mpeg")
-        return FileResponse(
-            str(_FRONTEND_DIST / "index.html"),
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-        )

@@ -217,6 +217,15 @@ if _FRONTEND_DIST.exists():
         StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
         name="assets",
     )
+    # Drum sample files live in /public/drums/ → dist/drums/
+    # Must be mounted BEFORE the SPA catch-all or the catch-all intercepts
+    # /drums/*.mp3 and returns index.html, causing audio decoding failures.
+    if (_FRONTEND_DIST / "drums").exists():
+        app.mount(
+            "/drums",
+            StaticFiles(directory=str(_FRONTEND_DIST / "drums")),
+            name="drums",
+        )
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str = ""):

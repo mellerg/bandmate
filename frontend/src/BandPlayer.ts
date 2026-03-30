@@ -31,6 +31,9 @@ async function loadDrumBuffers(ctx: AudioContext): Promise<DrumBuffers> {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const arr = await resp.arrayBuffer();
+        const ct = resp.headers.get('content-type');
+        const hdr = Array.from(new Uint8Array(arr.slice(0, 4))).map(b => b.toString(16).padStart(2, '0')).join(' ');
+        console.log(`[BandPlayer] ${name}: ${arr.byteLength}B, ct=${ct}, header=${hdr}`);
         result[name] = await ctx.decodeAudioData(arr);
         console.log(`[BandPlayer] Loaded drum: ${name}`);
       } catch (e) {

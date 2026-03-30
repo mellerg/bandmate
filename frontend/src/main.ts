@@ -50,7 +50,7 @@ let firstAudioSentAt = 0; // performance.now() when first PCM chunk was sent
 const capture = new AudioCapture();
 const wsClient = new WebSocketClient(WS_URL);
 const scheduler = new PreBufferScheduler();
-const player = new BandPlayer();
+let player = new BandPlayer();
 
 // ── KPI helpers ───────────────────────────────────────────────────────────────
 type KpiColor = 'green' | 'orange' | 'red';
@@ -234,6 +234,8 @@ async function startSession() {
   startBtn.disabled = true;
   stopBtn.disabled = false;
 
+  // Recreate fresh on every session — disposed Tone.js nodes cannot be reused
+  player = new BandPlayer();
   await player.init();
 
   wsClient.onMessage = handleServerMessage;

@@ -28,6 +28,7 @@ export interface ServerMessage {
   type: 'analysis' | 'notes' | 'status' | 'kpi';
   analysis?: AnalysisResult;
   notes?: NoteEvent[];
+  actual_duration?: number;   // bar-aligned chunk length in seconds
   message?: string;
   metrics?: KpiMetrics;
 }

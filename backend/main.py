@@ -64,7 +64,7 @@ async def websocket_endpoint(ws: WebSocket):
         'change_detected_time': None,  # wall time of last significant change
     }
 
-    async def send_notes(notes: list[dict]):
+    async def send_notes(notes: list[dict], actual_duration: float):
         now = time.time()
         kpi: dict = {
             'musicality_score': round(conductor.last_musicality_score * 100, 1),
@@ -82,7 +82,11 @@ async def websocket_endpoint(ws: WebSocket):
             kpi_state['change_detected_time'] = None
 
         try:
-            await ws.send_text(json.dumps({"type": "notes", "notes": notes}))
+            await ws.send_text(json.dumps({
+                "type": "notes",
+                "notes": notes,
+                "actual_duration": round(actual_duration, 4),
+            }))
             await ws.send_text(json.dumps({"type": "kpi", "metrics": kpi}))
         except Exception:
             pass

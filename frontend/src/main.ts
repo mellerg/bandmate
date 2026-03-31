@@ -190,6 +190,7 @@ function handleServerMessage(msg: ServerMessage) {
   }
 
   if (msg.type === 'notes' && msg.notes && msg.notes.length > 0) {
+    const chunkDuration = msg.actual_duration ?? 4;
     if (phase === 'pregenerating') {
       setPhase('jamming');
       scheduler.start(Tone.now());
@@ -199,7 +200,7 @@ function handleServerMessage(msg: ServerMessage) {
       startDrainLoop();
     }
     scheduler.enqueue(msg.notes, batchOffset);
-    batchOffset += 4;
+    batchOffset += chunkDuration;
     log(`Queued ${msg.notes.length} events. Buffer: ${scheduler.queueLength} events`, 'info');
   }
 

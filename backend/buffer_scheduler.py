@@ -1,10 +1,8 @@
 import asyncio
-import time
 from conductor import Conductor, NoteEvent
 from dataclasses import asdict
 
-CHUNK_DURATION = 4.0   # seconds per chunk
-LOOKAHEAD = 3          # generate this many chunks ahead
+CHUNK_DURATION = 4.0   # target seconds per chunk (actual is bar-aligned)
 
 
 class BufferScheduler:
@@ -16,7 +14,7 @@ class BufferScheduler:
         self._generation_count = 0
 
     def set_send_callback(self, cb):
-        """cb(notes: list[dict]) — called when a chunk is ready to send."""
+        """cb(notes: list[dict], actual_duration: float) — called when a chunk is ready."""
         self._send_callback = cb
 
     def start(self):
@@ -30,18 +28,16 @@ class BufferScheduler:
             self._task.cancel()
 
     async def _loop(self):
-        """Continuously generate chunks and send them, staying LOOKAHEAD ahead."""
+        """Generate chunks continuously, sleeping actual_duration between each."""
         while self._running:
-            # Generate next chunk
+            actual_duration = CHUNK_DURATION
             try:
-                notes = self.conductor.generate_chunk(CHUNK_DURATION)
+                notes, actual_duration = self.conductor.generate_chunk(CHUNK_DURATION)
                 if self._send_callback:
                     payload = [asdict(n) for n in notes]
-                    await self._send_callback(payload)
+                    await self._send_callback(payload, actual_duration)
                 self._generation_count += 1
             except Exception as e:
                 print(f'[BufferScheduler] Error generating chunk: {e}')
 
-            # Wait chunk_duration before generating the next one
-            # This keeps us ~CHUNK_DURATION ahead of playback
-            await asyncio.sleep(CHUNK_DURATION)
+            await asyncio.sleep(actual_duration)

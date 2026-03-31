@@ -1,7 +1,8 @@
 import time
+from collections import Counter
 import numpy as np
 import librosa
-from music_theory import detect_chord, ScaleInferenceEngine
+from music_theory import detect_chord, ScaleInferenceEngine, NOTES
 
 SAMPLE_RATE = 22050
 HOP_SIZE = 512
@@ -115,8 +116,20 @@ class AudioAnalyzer:
             rms = float(np.sqrt(np.mean(frame ** 2))) if len(frame) > 0 else 0.0
             gated.append(float(hz) if rms > _PLAYING_RMS_THRESHOLD and 80 < hz < 2000 else 0.0)
 
-        self.scale_engine.process_pitches(gated)
-        self._current_key = self.scale_engine.get_key(force=True)
+        voiced_hz = [hz for hz in gated if hz > 0]
+        if voiced_hz:
+            pitch_classes = [round(69 + 12 * float(np.log2(hz / 440.0))) % 12 for hz in voiced_hz]
+            if len(set(pitch_classes)) <= 2:
+                # User played 1-2 distinct notes — use most common as the key directly
+                most_common_pc = Counter(pitch_classes).most_common(1)[0][0]
+                self._current_key = NOTES[most_common_pc]
+                print(f"[Analyzer] Single/dual note: key forced to {self._current_key}")
+            else:
+                self.scale_engine.process_pitches(gated)
+                self._current_key = self.scale_engine.get_key(force=True)
+        else:
+            self.scale_engine.process_pitches(gated)
+            self._current_key = self.scale_engine.get_key(force=True)
 
         # Update confidence from voiced fraction of full buffer
         voiced = sum(1 for v in gated if v > 0)

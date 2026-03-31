@@ -1,5 +1,5 @@
 import asyncio
-from conductor import Conductor, NoteEvent
+from conductor import Conductor
 from dataclasses import asdict
 
 CHUNK_DURATION = 4.0   # target seconds per chunk (actual is bar-aligned)

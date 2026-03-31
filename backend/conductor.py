@@ -10,7 +10,6 @@ Design principles
 - Per-bar chord selection means chord changes happen on downbeats, not mid-chunk.
 """
 
-import math
 import random
 from dataclasses import dataclass
 

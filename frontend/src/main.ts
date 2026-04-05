@@ -23,6 +23,8 @@ const bandPanelEl = document.getElementById('bandPanel') as HTMLDivElement;
 const canvas = document.getElementById('waveform') as HTMLCanvasElement;
 const logEl = document.getElementById('log') as HTMLDivElement;
 const genreBtns = document.querySelectorAll<HTMLButtonElement>('.genre-btn');
+const keepJammingOverlay = document.getElementById('keepJammingOverlay') as HTMLDivElement;
+const keepJammingBtn = document.getElementById('keepJammingBtn') as HTMLButtonElement;
 
 // KPI DOM refs
 const kpiBufJoin     = document.getElementById('kpiBufJoin')!;
@@ -211,6 +213,15 @@ function handleServerMessage(msg: ServerMessage) {
   if (msg.type === 'status') {
     log(msg.message ?? '', 'info');
   }
+
+  if (msg.type === 'session_stop') {
+    stopDrainLoop();
+    scheduler.stop();
+    setPhase('idle');
+    bandPanelEl.style.display = 'none';
+    keepJammingOverlay.style.display = 'flex';
+    log('Band paused — no signal for 14 seconds.', 'warn');
+  }
 }
 
 // ── Drain loop — schedules due notes into Tone.js ────────────────────────────
@@ -293,6 +304,7 @@ function stopSession() {
   genreEl.textContent = '—';
   bandPanelEl.style.display = 'none';
   firstAudioSentAt = 0;
+  keepJammingOverlay.style.display = 'none';
   resetKpiCards();
   startBtn.disabled = false;
   stopBtn.disabled = true;
@@ -306,6 +318,15 @@ genreBtns.forEach((btn) => {
     genreBtns.forEach((b) => b.classList.toggle('active', b === btn));
     wsClient.sendGenre(selectedGenre);
   });
+});
+
+// ── Keep Jamming ──────────────────────────────────────────────────────────────
+keepJammingBtn.addEventListener('click', () => {
+  keepJammingOverlay.style.display = 'none';
+  batchOffset = 0;
+  setPhase('pregenerating');
+  wsClient.sendKeepJamming();
+  log('Resuming — band is tuning back in...', 'info');
 });
 
 // ── Buttons ───────────────────────────────────────────────────────────────────

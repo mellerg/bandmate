@@ -19,7 +19,7 @@ class _BpmStabilizer:
     is sustained for > SUSTAIN_SECS seconds.
     """
     THRESHOLD = 10.0
-    SUSTAIN_SECS = 5.0
+    SUSTAIN_SECS = 7.0
 
     def __init__(self) -> None:
         self.stable_bpm: float = 100.0
@@ -57,6 +57,7 @@ class AudioAnalyzer:
         self._bpm_stability: float = 0.0
         self.frame_count: int = 0
         self._raw_chunks: list[np.ndarray] = []
+        self._silence_start: float | None = None
 
     # ── Per-chunk streaming (lightweight — no librosa) ────────────────────────
 
@@ -78,6 +79,13 @@ class AudioAnalyzer:
         rms = float(np.sqrt(np.mean(samples ** 2)))
         self.confidence_history.append(min(1.0, rms / 0.1))
         self.confidence_history = self.confidence_history[-40:]
+
+        # Silence tracking (wall-clock)
+        if rms < _PLAYING_RMS_THRESHOLD:
+            if self._silence_start is None:
+                self._silence_start = time.monotonic()
+        else:
+            self._silence_start = None
 
         self.frame_count += 1
         return self._current_result()
@@ -182,6 +190,7 @@ class AudioAnalyzer:
     def _current_result(self) -> dict:
         avg_conf = float(np.mean(self.confidence_history)) if self.confidence_history else 0.0
         energy = float(np.sqrt(np.mean(self._raw_chunks[-1] ** 2))) if self._raw_chunks else 0.0
+        silence_duration = (time.monotonic() - self._silence_start) if self._silence_start is not None else 0.0
         return {
             'pitch': 0.0,
             'key': self._current_key,
@@ -190,7 +199,12 @@ class AudioAnalyzer:
             'pitch_confidence': round(avg_conf, 3),
             'bpm_stability': round(self._bpm_stability, 2),
             'chord_root': self._current_chord_root,
+            'silence_duration': round(silence_duration, 2),
         }
+
+    def reset_silence(self) -> None:
+        """Clear the silence timer without discarding key/BPM state."""
+        self._silence_start = None
 
     def reset(self) -> None:
         self.bpm_stabilizer = _BpmStabilizer()
@@ -201,3 +215,4 @@ class AudioAnalyzer:
         self._bpm_stability = 0.0
         self.frame_count = 0
         self._raw_chunks.clear()
+        self._silence_start = None

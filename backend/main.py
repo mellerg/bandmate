@@ -53,6 +53,7 @@ async def websocket_endpoint(ws: WebSocket):
     conductor = Conductor()
     scheduler = BufferScheduler(conductor)
     generation_started = False
+    session_stopped = False   # True while waiting for keep_jamming after 14s silence
     genre = "blues"
 
     # KPI timing state (mutable dict avoids nonlocal for multiple vars)
@@ -110,7 +111,17 @@ async def websocket_endpoint(ws: WebSocket):
                 try:
                     msg = json.loads(data["text"])
 
-                    if msg.get("type") == "genre":
+                    if msg.get("type") == "keep_jamming":
+                        # User wants to resume after 14s silence stop
+                        if session_stopped:
+                            session_stopped = False
+                            generation_started = True
+                            analyzer.reset_silence()
+                            conductor.set_silence_state(0.0)
+                            scheduler.start()
+                            print("[WS] Keep jamming — scheduler restarted.")
+
+                    elif msg.get("type") == "genre":
                         # Just update genre — does NOT start the scheduler
                         genre = msg.get("genre", "blues")
                         conductor.update(
@@ -198,12 +209,26 @@ async def websocket_endpoint(ws: WebSocket):
                     kpi_state['last_energy'] = analysis['energy']
                     kpi_state['last_bpm'] = analysis['bpm']
 
+                    silence_duration = analysis.get("silence_duration", 0.0)
+                    conductor.set_silence_state(silence_duration)
                     conductor.update(
                         key=analysis["key"],
                         bpm=analysis["bpm"],
                         genre=genre,
                         energy=analysis["energy"]
                     )
+
+                    # 14-second silence rule — stop band and notify frontend
+                    if generation_started and not session_stopped and silence_duration >= 14.0:
+                        session_stopped = True
+                        generation_started = False
+                        scheduler.stop()
+                        print(f"[WS] 14s silence detected — stopping band.")
+                        try:
+                            await ws.send_text(json.dumps({"type": "session_stop"}))
+                        except Exception:
+                            pass
+
                     await ws.send_text(json.dumps({
                         "type": "analysis",
                         "analysis": analysis

@@ -25,7 +25,7 @@ export interface KpiMetrics {
 }
 
 export interface ServerMessage {
-  type: 'analysis' | 'notes' | 'status' | 'kpi';
+  type: 'analysis' | 'notes' | 'status' | 'kpi' | 'session_stop';
   analysis?: AnalysisResult;
   notes?: NoteEvent[];
   actual_duration?: number;   // bar-aligned chunk length in seconds
@@ -88,6 +88,12 @@ export class WebSocketClient {
   sendStartGeneration(genre: string): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'start_generation', genre }));
+    }
+  }
+
+  sendKeepJamming(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'keep_jamming' }));
     }
   }
 

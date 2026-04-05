@@ -380,3 +380,42 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
+/* ── Keep Jamming overlay ────────────────────────────────────────────────── */
+
+.keep-jamming-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 13, 20, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.keep-jamming-modal {
+  background: #14141e;
+  border: 1px solid rgba(124, 111, 205, 0.4);
+  border-radius: 16px;
+  padding: 2.5rem 3rem;
+  text-align: center;
+  max-width: 360px;
+}
+
+.keep-jamming-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.keep-jamming-modal h2 {
+  font-size: 1.5rem;
+  color: #7c6fcd;
+  margin-bottom: 0.5rem;
+}
+
+.keep-jamming-modal p {
+  color: #888;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}

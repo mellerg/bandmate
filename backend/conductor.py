@@ -77,6 +77,10 @@ class Conductor:
         self.energy = 0.5
         self.last_musicality_score: float = 1.0
         self._bar_count = 0   # global bar counter — drives 12-bar position
+        self._silence_duration: float = 0.0
+
+    def set_silence_state(self, silence_duration: float) -> None:
+        self._silence_duration = silence_duration
 
     def update(self, key: str, bpm: float, genre: str, energy: float) -> None:
         if key:
@@ -102,6 +106,11 @@ class Conductor:
         actual_duration = bars * bar_dur
 
         last_chord_tones: list[str] = []
+
+        # Silence fade: linear 1.0→0.0 over seconds 7–14; simplified parts at >7s
+        sd = self._silence_duration
+        fade = max(0.0, 1.0 - (sd - 7.0) / 7.0) if sd > 7.0 else 1.0
+        simplified = sd >= 7.0
 
         for bar_idx in range(bars):
             b0 = bar_idx * bar_dur
@@ -136,7 +145,11 @@ class Conductor:
             )
 
             # ── Generate notes for this bar ───────────────────────────────
-            if self.genre == 'blues':
+            if simplified:
+                self._silence_drums_bar(events, b0, beat_dur, fade)
+                self._silence_bass_bar(events, b0, chord_root_name, fade)
+                self._silence_keys_bar(events, b0, chord_tones, fade)
+            elif self.genre == 'blues':
                 self._blues_drums_bar(events, b0, beat_dur, bar_dur, is_fill)
                 self._blues_bass_bar(events, b0, beat_dur, chord_root_name, fifth_name, sixth_name)
                 self._blues_keys_bar(events, b0, beat_dur, chord_tones)
@@ -263,6 +276,23 @@ class Conductor:
             idx = self._ARP_PATTERN[tick] % n
             note = note_with_octave(chord_tones[idx], 4)
             events.append(NoteEvent('keys', note, '8n', t, rh_vel))
+
+    # ── Silence mode (simplified parts, 7–14s fade) ───────────────────────────
+
+    def _silence_drums_bar(self, events: list, b0: float, beat_dur: float, fade: float) -> None:
+        """Only hi-hat on every beat — reduced parts during silence fade."""
+        for beat in range(4):
+            t = b0 + beat * beat_dur
+            events.append(NoteEvent('drums', 'hat', '4n', t, 0.35 * fade * self._dv()))
+
+    def _silence_bass_bar(self, events: list, b0: float, root: str, fade: float) -> None:
+        """One whole note on the root — holds the tonal centre."""
+        events.append(NoteEvent('bass', note_with_octave(root, 2), '1n', b0, 0.55 * fade))
+
+    def _silence_keys_bar(self, events: list, b0: float, chord_tones: list[str], fade: float) -> None:
+        """One whole-note chord voicing — gentle pad sustain."""
+        for ct in chord_tones:
+            events.append(NoteEvent('keys', note_with_octave(ct, 4), '1n', b0, 0.40 * fade))
 
     # ── Utilities ─────────────────────────────────────────────────────────────
 

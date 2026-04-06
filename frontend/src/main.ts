@@ -25,6 +25,7 @@ const logEl = document.getElementById('log') as HTMLDivElement;
 const genreBtns = document.querySelectorAll<HTMLButtonElement>('.genre-btn');
 const keepJammingOverlay = document.getElementById('keepJammingOverlay') as HTMLDivElement;
 const keepJammingBtn = document.getElementById('keepJammingBtn') as HTMLButtonElement;
+const stopFromOverlayBtn = document.getElementById('stopFromOverlayBtn') as HTMLButtonElement;
 
 // KPI DOM refs
 const kpiBufJoin     = document.getElementById('kpiBufJoin')!;
@@ -327,6 +328,10 @@ keepJammingBtn.addEventListener('click', () => {
   setPhase('pregenerating');
   wsClient.sendKeepJamming();
   log('Resuming — band is tuning back in...', 'info');
+});
+
+stopFromOverlayBtn.addEventListener('click', () => {
+  stopSession();
 });
 
 // ── Buttons ───────────────────────────────────────────────────────────────────

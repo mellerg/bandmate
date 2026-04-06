@@ -55,6 +55,7 @@ async def websocket_endpoint(ws: WebSocket):
     generation_started = False
     session_stopped = False   # True while waiting for keep_jamming after 14s silence
     genre = "blues"
+    reanalysis_task: asyncio.Task | None = None
 
     # KPI timing state (mutable dict avoids nonlocal for multiple vars)
     kpi_state = {
@@ -92,6 +93,32 @@ async def websocket_endpoint(ws: WebSocket):
         except Exception:
             pass
 
+    async def _reanalysis_loop() -> None:
+        """Re-detect key and BPM every 8 s while the band is playing."""
+        await asyncio.sleep(8.0)
+        while generation_started and not session_stopped:
+            loop = asyncio.get_event_loop()
+            try:
+                result = await loop.run_in_executor(None, analyzer.analyze_recent)
+                if result:
+                    key_changed = result['key'] != conductor.key
+                    bpm_changed = abs(result['bpm'] - conductor.bpm) > 5
+                    if key_changed or bpm_changed:
+                        conductor.update(
+                            key=result['key'],
+                            bpm=result['bpm'],
+                            genre=genre,
+                            energy=conductor.energy,
+                        )
+                        print(
+                            f"[WS] Re-analysis update: "
+                            f"key={result['key']}{'*' if key_changed else ''}, "
+                            f"bpm={result['bpm']:.1f}{'*' if bpm_changed else ''}"
+                        )
+            except Exception as e:
+                print(f"[WS] Re-analysis error: {e}")
+            await asyncio.sleep(8.0)
+
     scheduler.set_send_callback(send_notes)
 
     try:
@@ -119,6 +146,8 @@ async def websocket_endpoint(ws: WebSocket):
                             analyzer.reset_silence()
                             conductor.set_silence_state(0.0)
                             scheduler.start()
+                            if reanalysis_task is None or reanalysis_task.done():
+                                reanalysis_task = asyncio.create_task(_reanalysis_loop())
                             print("[WS] Keep jamming — scheduler restarted.")
 
                     elif msg.get("type") == "genre":
@@ -175,6 +204,7 @@ async def websocket_endpoint(ws: WebSocket):
                         if not generation_started:
                             generation_started = True
                             scheduler.start()
+                            reanalysis_task = asyncio.create_task(_reanalysis_loop())
                             print("[WS] Buffer scheduler started.")
 
                 except json.JSONDecodeError:
@@ -211,9 +241,11 @@ async def websocket_endpoint(ws: WebSocket):
 
                     silence_duration = analysis.get("silence_duration", 0.0)
                     conductor.set_silence_state(silence_duration)
+                    # Only update energy per-chunk; key+BPM are set by
+                    # finalize_analysis() (start) and analyze_recent() (periodic).
                     conductor.update(
-                        key=analysis["key"],
-                        bpm=analysis["bpm"],
+                        key=conductor.key,
+                        bpm=conductor.bpm,
                         genre=genre,
                         energy=analysis["energy"]
                     )
@@ -223,6 +255,8 @@ async def websocket_endpoint(ws: WebSocket):
                         session_stopped = True
                         generation_started = False
                         scheduler.stop()
+                        if reanalysis_task and not reanalysis_task.done():
+                            reanalysis_task.cancel()
                         print(f"[WS] 14s silence detected — stopping band.")
                         try:
                             await ws.send_text(json.dumps({"type": "session_stop"}))
@@ -240,6 +274,8 @@ async def websocket_endpoint(ws: WebSocket):
         print(f"[WS] Client disconnected: {ws.client}")
     finally:
         scheduler.stop()
+        if reanalysis_task and not reanalysis_task.done():
+            reanalysis_task.cancel()
         analyzer.reset()
 
 

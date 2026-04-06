@@ -8,6 +8,7 @@ SAMPLE_RATE = 22050
 HOP_SIZE = 512
 WIN_SIZE = 2048
 MIN_BPM_SAMPLES = SAMPLE_RATE * 3   # need ≥3 s for reliable beat tracking
+_MAX_RAW_SAMPLES = SAMPLE_RATE * 10  # cap rolling buffer to ~10 s
 
 # Minimum RMS to consider a chunk as "the user is playing"
 _PLAYING_RMS_THRESHOLD = 0.005
@@ -74,6 +75,9 @@ class AudioAnalyzer:
             return self._current_result()
 
         self._raw_chunks.append(samples.copy())
+        # Keep rolling buffer to ~10 s to bound memory and analysis time
+        while len(self._raw_chunks) > 1 and sum(len(c) for c in self._raw_chunks) > _MAX_RAW_SAMPLES:
+            self._raw_chunks.pop(0)
 
         # Lightweight energy-based confidence (no pitch detection yet)
         rms = float(np.sqrt(np.mean(samples ** 2)))
@@ -201,6 +205,61 @@ class AudioAnalyzer:
             'chord_root': self._current_chord_root,
             'silence_duration': round(silence_duration, 2),
         }
+
+    def analyze_recent(self) -> dict | None:
+        """
+        Run key + BPM detection on the current rolling buffer (~10 s).
+        Updates _current_key and bpm_stabilizer in place.
+        Returns {'bpm', 'key'} or None if there is not enough audio / signal.
+        Called periodically from a background task while jamming.
+        """
+        if not self._raw_chunks:
+            return None
+        audio = np.concatenate(self._raw_chunks)
+        if len(audio) < MIN_BPM_SAMPLES:
+            return None
+
+        # ── Pitch / key detection ─────────────────────────────────────────
+        f0 = librosa.yin(
+            audio,
+            fmin=librosa.note_to_hz('C2'),
+            fmax=librosa.note_to_hz('C7'),
+            sr=SAMPLE_RATE,
+            hop_length=HOP_SIZE,
+            frame_length=WIN_SIZE,
+        )
+        gated: list[float] = []
+        for i, hz in enumerate(f0):
+            start = i * HOP_SIZE
+            frame = audio[start:start + WIN_SIZE]
+            rms = float(np.sqrt(np.mean(frame ** 2))) if len(frame) > 0 else 0.0
+            gated.append(float(hz) if rms > _PLAYING_RMS_THRESHOLD and 80 < hz < 2000 else 0.0)
+
+        voiced_hz = [hz for hz in gated if hz > 0]
+        if voiced_hz:
+            pitch_classes = [round(69 + 12 * float(np.log2(hz / 440.0))) % 12 for hz in voiced_hz]
+            if len(set(pitch_classes)) <= 2:
+                most_common_pc = Counter(pitch_classes).most_common(1)[0][0]
+                self._current_key = NOTES[most_common_pc]
+            else:
+                engine = ScaleInferenceEngine(sample_rate=SAMPLE_RATE, hop_size=HOP_SIZE)
+                engine.process_pitches(gated)
+                self._current_key = engine.get_key(force=True)
+        else:
+            # No signal in rolling window — keep current key, nothing to update
+            return None
+
+        # ── BPM detection ─────────────────────────────────────────────────
+        tempo, _ = librosa.beat.beat_track(y=audio, sr=SAMPLE_RATE, hop_length=HOP_SIZE)
+        detected_bpm = float(np.atleast_1d(tempo)[0])
+        if 40 < detected_bpm < 240:
+            self.bpm_stabilizer.observe(detected_bpm)
+
+        print(
+            f"[Analyzer.recent] key={self._current_key}, bpm={self.bpm_stabilizer.stable_bpm:.1f}, "
+            f"voiced={len(voiced_hz)}/{len(gated)}"
+        )
+        return {'bpm': self.bpm_stabilizer.stable_bpm, 'key': self._current_key}
 
     def reset_silence(self) -> None:
         """Clear the silence timer without discarding key/BPM state."""

@@ -419,3 +419,18 @@ button:disabled {
   font-size: 0.9rem;
   margin-bottom: 1.5rem;
 }
+
+.btn-overlay-stop {
+  display: block;
+  margin-top: 0.75rem;
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.btn-overlay-stop:hover {
+  color: #888;
+}
